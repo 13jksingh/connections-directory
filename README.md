@@ -16,7 +16,7 @@ Google Drive sync requires a Google OAuth client. The maintainer creates one cli
 2. Configure Google Auth Platform branding and an **External** audience in testing. Add your Google account and each initial user's Google account as test users. Google may show a testing warning.
 3. Configure the `https://www.googleapis.com/auth/drive.file` scope, which limits access to files created by or explicitly shared with the app.
 4. Create an OAuth client ID for a **Web application**. Add the published site's origin, for example `https://13jksingh.github.io`, as an authorized JavaScript origin. For local testing, also add `http://localhost:5173` or your actual local origin.
-5. In Settings, paste the client ID and select **Save client ID**, then **Connect Drive**. Alternatively, the maintainer can place this public client ID in `public/config.json` and redeploy so every user gets it automatically. Never add a client secret or service-account key.
+5. The maintainer can place this public client ID in `public/config.json` and redeploy so every user gets it automatically. Alternatively, enter it under **Settings > Advanced** and select **Save client ID**. Never add a client secret or service-account key. Select **Connect Drive**.
 6. Select **Sync now** and enter a password. For the first sync, confirm the same password. On another phone, connect the same Google account and restore a Drive version using that password.
 
 The OAuth client ID identifies the app; it is not a secret. The encryption password is not sent to Google and is not recoverable. Google authorization can expire, requiring the user to reconnect. The app syncs only while open, online, and authorized; check for **Saved to Drive** before closing it. Changes not yet synced exist only on that device.

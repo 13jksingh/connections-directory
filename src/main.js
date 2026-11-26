@@ -1,4 +1,5 @@
 import './style.css';
+import './settings.css';
 import { blankData, isPossibleDuplicate, newId, parseVcards, searchContacts, sortedNotes, validData } from './data.js';
 import { readState, writeState } from './storage.js';
 import { decryptData, encryptData } from './crypto.js';
@@ -155,22 +156,30 @@ function reminders() {
 }
 function settings() {
   const clientId = localStorage.getItem('connections-client-id') || defaultClientId;
+  const connected = drive.connected();
   return `${top()}<h1>Settings</h1>${status()}
-    <div class="section-title"><h2>Your Google Drive</h2></div>
-    <div class="card"><p>Your encrypted data is stored in your own Drive. Sync works while this app is open and connected.</p>
-    <form data-form="client-id">${field('Google OAuth client ID', 'clientId', clientId, 'text', 'placeholder="...apps.googleusercontent.com" autocomplete="off"')}
-    <button class="secondary full" type="submit">Save client ID</button></form>
-    <div class="actions"><button class="button" data-action="connect">${drive.connected() ? 'Reconnect Drive' : 'Connect Drive'}</button>
-    <button class="secondary" data-action="sync">Sync now</button></div>
-    <div class="actions"><button class="secondary" data-action="versions">View Drive versions</button></div>
-    <p class="hint">A password is requested when syncing or restoring. Keep it safe: it cannot be recovered.</p></div>
-    <div class="section-title"><h2>Backup &amp; restore</h2></div>
-    <div class="card"><p>Save an encrypted copy to Files or your own cloud storage.</p><div class="actions">
-    <button class="secondary" data-action="export">Export backup</button><button class="secondary" data-action="restore-file">Restore backup</button></div></div>
-    <div class="section-title"><h2>Get started</h2></div>
-    <div class="card"><p><strong>Add to Home Screen:</strong> On iPhone, open this link in Safari, tap Share, then Add to Home Screen. On Android, use the browser menu and Install app or Add to Home Screen.</p>
+    <div class="card settings-card">
+    <h2>Google Drive</h2>
+    <p class="muted">${connected ? 'Connected for this session.' : 'Connect to back up and restore your data.'}</p>
+    <p class="hint">Backups are encrypted. Sync runs while the app is open and connected. Keep your password safe; it cannot be recovered.</p>
+    <button class="button full" data-action="${connected ? 'sync' : 'connect'}">${connected ? 'Sync now' : 'Connect Drive'}</button>
+    ${connected ? `<div class="actions"><button class="secondary full" data-action="connect">Reconnect Drive</button></div>` : ''}
+    </div>
+    <details class="settings-details"><summary>Backups &amp; restore</summary>
+    <div class="settings-content">
+    <p class="hint">Each Drive sync that saves changes creates an encrypted version. Earlier versions stay in your Drive.</p>
+    <button class="secondary full" data-action="versions">View Drive versions</button>
+    <p class="hint settings-subtext">You can also save or restore an encrypted file.</p>
+    <div class="actions"><button class="secondary" data-action="export">Export backup</button><button class="secondary" data-action="restore-file">Restore backup</button></div>
+    </div></details>
+    <details class="settings-details"><summary>Setup &amp; contacts</summary>
+    <div class="settings-content"><p><strong>Add to Home Screen:</strong> On iPhone, open this link in Safari, tap Share, then Add to Home Screen. On Android, use the browser menu and Install app or Add to Home Screen.</p>
     <p><strong>Import contacts:</strong> Export contacts as a .vcf file from your phone's Contacts app, then choose that file here. The file may contain unencrypted personal data; delete it after import if no longer needed.</p>
-    <button class="secondary full" data-action="import">Import contacts</button></div>
+    <button class="secondary full" data-action="import">Import contacts</button></div></details>
+    <details class="settings-details"${clientId ? '' : ' open'}><summary>Advanced</summary>
+    <div class="settings-content"><p class="hint">For app setup only. Most users do not need to change this.</p>
+    <form data-form="client-id">${field('Google OAuth client ID', 'clientId', clientId, 'text', 'placeholder="...apps.googleusercontent.com" autocomplete="off"')}
+    <button class="secondary full" type="submit">Save client ID</button></form></div></details>
     <input id="file-input" type="file" accept=".vcf,text/vcard" hidden><input id="restore-input" type="file" accept=".json,application/json" hidden>`;
 }
 function versionsPage() {

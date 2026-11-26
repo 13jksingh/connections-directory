@@ -1,0 +1,7 @@
+.settings-card { margin-top: 20px; }
+.settings-card h2 { margin-bottom: 6px; }
+.settings-card > .button { margin-top: 6px; }
+.settings-details { margin-top: 12px; background: white; border: 1px solid #e6ede5; border-radius: 16px; }
+.settings-details summary { padding: 15px; font-weight: 700; cursor: pointer; }
+.settings-content { padding: 0 15px 15px; }
+.settings-subtext { margin-top: 16px; }
