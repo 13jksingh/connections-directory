@@ -48,8 +48,8 @@ export async function listSnapshots() {
   let pageToken;
   do {
     const params = new URLSearchParams({
-      q: "trashed = false and appProperties has { key='kind' and value='connections-snapshot-v1' }",
-      fields: 'nextPageToken,files(id,name,createdTime,appProperties)', pageSize: '100'
+      q: "trashed = false and (appProperties has { key='kind' and value='connections-snapshot-v1' } or appProperties has { key='kind' and value='connections-current-v1' })",
+      fields: 'nextPageToken,files(id,name,createdTime,modifiedTime,appProperties)', pageSize: '100'
     });
     if (pageToken) params.set('pageToken', pageToken);
     const body = await (await request(`https://www.googleapis.com/drive/v3/files?${params}`)).json();
@@ -60,6 +60,8 @@ export async function listSnapshots() {
 }
 
 export function heads(files) {
+  const current = files.filter(file => file.appProperties?.kind === 'connections-current-v1');
+  if (current.length) return current;
   const parents = new Set(files.flatMap(file => (file.appProperties?.parents || '').split(',').filter(Boolean)));
   return files.filter(file => !parents.has(file.appProperties?.snapshot));
 }
@@ -69,16 +71,16 @@ export async function download(fileId) {
   return response.json();
 }
 
-export async function upload(envelope, snapshotId, parentIds) {
-  const metadata = { name: `connections-${snapshotId}.json`,
+export async function upload(envelope, snapshotId, currentFileId = '') {
+  const metadata = { name: 'connections-current.json',
     mimeType: 'application/json',
-    appProperties: { kind: 'connections-snapshot-v1', snapshot: snapshotId, parents: parentIds.join(',') } };
-  if (metadata.appProperties.parents.length > 100) throw new Error('Too many conflicting versions; export a backup before resolving.');
+    appProperties: { kind: 'connections-current-v1', snapshot: snapshotId } };
   const boundary = `connections_${crypto.randomUUID().replaceAll('-', '')}`;
   const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(envelope)}\r\n--${boundary}--`;
-  const response = await request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-    method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
+  const target = currentFileId ? `/${encodeURIComponent(currentFileId)}` : '';
+  const response = await request(`https://www.googleapis.com/upload/drive/v3/files${target}?uploadType=multipart&fields=id`, {
+    method: currentFileId ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body
   });
   return response.json();
 }

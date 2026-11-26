@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { blankData, isPossibleDuplicate, parseVcards, searchContacts, sortedNotes } from '../src/data.js';
 import { decryptData, encryptData } from '../src/crypto.js';
-import { heads } from '../src/drive.js';
+import { connect, heads, listSnapshots, upload } from '../src/drive.js';
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 
@@ -41,4 +41,37 @@ test('snapshot heads preserve concurrent branches', () => {
   const file = (id, parents = '') => ({ appProperties: { snapshot: id, parents } });
   assert.deepEqual(heads([file('a'), file('b', 'a'), file('c', 'a')]).map(f => f.appProperties.snapshot), ['b', 'c']);
   assert.deepEqual(heads([file('a'), file('b', 'a'), file('c', 'a'), file('d', 'b,c')]).map(f => f.appProperties.snapshot), ['d']);
+  const current = { id: 'current', appProperties: { kind: 'connections-current-v1', snapshot: 'e' } };
+  assert.deepEqual(heads([file('a'), file('b', 'a'), current]), [current]);
+  assert.deepEqual(heads([current, { ...current, id: 'other' }]).map(f => f.id), ['current', 'other']);
+});
+
+test('Drive keeps old snapshots readable and updates one current file', async () => {
+  const originalFetch = globalThis.fetch, originalWindow = globalThis.window, originalGoogle = globalThis.google;
+  const requests = [];
+  globalThis.google = { accounts: { oauth2: { initTokenClient: ({ callback }) => ({
+    requestAccessToken: () => callback({ access_token: 'test-token', expires_in: 3600 })
+  }) } } };
+  globalThis.window = { google: globalThis.google };
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), ...options });
+    return { ok: true, json: async () => String(url).includes('upload/drive') ? { id: 'current-file' } : { files: [] } };
+  };
+  try {
+    await connect('test-client');
+    await listSnapshots();
+    assert.match(new URL(requests[0].url).searchParams.get('q'), /connections-snapshot-v1/);
+    assert.match(new URL(requests[0].url).searchParams.get('q'), /connections-current-v1/);
+    await upload({ encrypted: true }, 'first');
+    await upload({ encrypted: true }, 'second', 'current-file');
+    assert.equal(requests[1].method, 'POST');
+    assert.equal(requests[2].method, 'PATCH');
+    assert.match(requests[2].url, /files\/current-file\?/);
+    assert.match(requests[2].body, /connections-current-v1/);
+    assert.match(requests[2].body, /"snapshot":"second"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+    globalThis.google = originalGoogle;
+  }
 });

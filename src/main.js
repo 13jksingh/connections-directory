@@ -16,6 +16,13 @@ let cloudHeads = [], cloudFiles = [], importPreview = null, statusText = '', sta
 let defaultClientId = '';
 let queue = Promise.resolve();
 
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  if (drive.connected() && password && navigator.onLine) {
+    syncTimer = setTimeout(() => sync().catch(showError), 1800);
+  }
+}
+
 function persist() {
   const snapshot = structuredClone(state);
   queue = queue.catch(() => {}).then(() => writeState(snapshot));
@@ -28,13 +35,10 @@ async function change(mutator) {
   revision++;
   try {
     await persist();
-    statusText = 'Saved on this phone · Waiting to sync';
+    statusText = drive.connected() ? 'Saved on this phone · Waiting to sync' : 'Saved on this phone · Connect Drive to sync';
     statusKind = 'warning';
     render();
-    if (drive.connected() && password) {
-      clearTimeout(syncTimer);
-      syncTimer = setTimeout(() => sync().catch(showError), 1800);
-    }
+    scheduleSync();
   } catch (error) { showError(error); throw error; }
 }
 
@@ -161,20 +165,21 @@ function settings() {
     <div class="card settings-card">
     <h2>Google Drive</h2>
     <p class="muted">${connected ? 'Connected for this session.' : 'Connect to back up and restore your data.'}</p>
-    <p class="hint">Backups are encrypted. Sync runs while the app is open and connected. Keep your password safe; it cannot be recovered.</p>
+    <p class="hint">Changes sync automatically while the app is open and connected. Enter your encryption password when connecting, not for each save. Keep it safe; it cannot be recovered.</p>
     <button class="button full" data-action="${connected ? 'sync' : 'connect'}">${connected ? 'Sync now' : 'Connect Drive'}</button>
     ${connected ? `<div class="actions"><button class="secondary full" data-action="connect">Reconnect Drive</button></div>` : ''}
     </div>
     <details class="settings-details"><summary>Backups &amp; restore</summary>
     <div class="settings-content">
-    <p class="hint">Each Drive sync that saves changes creates an encrypted version. Earlier versions stay in your Drive.</p>
-    <button class="secondary full" data-action="versions">View Drive versions</button>
+    <p class="hint">The app updates one encrypted Drive file. Earlier backups from the previous version remain available.</p>
+    <button class="secondary full" data-action="versions">View Drive backups</button>
     <p class="hint settings-subtext">You can also save or restore an encrypted file.</p>
     <div class="actions"><button class="secondary" data-action="export">Export backup</button><button class="secondary" data-action="restore-file">Restore backup</button></div>
     </div></details>
     <details class="settings-details"><summary>Setup &amp; contacts</summary>
-    <div class="settings-content"><p><strong>Add to Home Screen:</strong> On iPhone, open this link in Safari, tap Share, then Add to Home Screen. On Android, use the browser menu and Install app or Add to Home Screen.</p>
-    <p><strong>Import contacts:</strong> Export contacts as a .vcf file from your phone's Contacts app, then choose that file here. The file may contain unencrypted personal data; delete it after import if no longer needed.</p>
+    <div class="settings-content"><p><strong>iPhone:</strong> Open this app in Safari, tap Share, then Add to Home Screen. Export contacts from Contacts as a .vcf file, then import it below.</p>
+    <p><strong>Android:</strong> Open this app in Chrome, tap the menu, then Install app or Add to Home Screen. In Contacts, export your contacts as a .vcf file, then import it below.</p>
+    <p class="hint">The exported contacts file may be unencrypted; delete it after import if no longer needed. On a new phone, install the app, connect the same Google account, and enter the same encryption password.</p>
     <button class="secondary full" data-action="import">Import contacts</button></div></details>
     <details class="settings-details"${clientId ? '' : ' open'}><summary>Advanced</summary>
     <div class="settings-content"><p class="hint">For app setup only. Most users do not need to change this.</p>
@@ -183,13 +188,13 @@ function settings() {
     <input id="file-input" type="file" accept=".vcf,text/vcard" hidden><input id="restore-input" type="file" accept=".json,application/json" hidden>`;
 }
 function versionsPage() {
-  return `<div class="top">${button('‹ Settings', 'settings')}</div><h1>Drive versions</h1>
+  return `<div class="top">${button('‹ Settings', 'settings')}</div><h1>Drive backups</h1>
     ${status()}
-    <p class="hint">Choose a version to restore. Restoring replaces this phone's local data. Existing Drive versions are kept.</p>
-    ${cloudFiles.length ? cloudFiles.map(file => `<div class="list-row"><div><strong>${escape(new Date(file.createdTime).toLocaleString())}</strong>
-    <p class="hint">${cloudHeads.some(head => head.id === file.id) ? 'Current' : 'Earlier'} version ${escape(file.appProperties?.snapshot?.slice(0, 8))}</p></div>
+    <p class="hint">Choose a backup to restore. Restoring replaces this phone's local data.</p>
+    ${cloudFiles.length ? cloudFiles.map(file => `<div class="list-row"><div><strong>${escape(new Date(file.modifiedTime || file.createdTime).toLocaleString())}</strong>
+    <p class="hint">${cloudHeads.some(head => head.id === file.id) ? 'Current' : 'Earlier'} backup ${escape(file.appProperties?.snapshot?.slice(0, 8))}</p></div>
     <button class="secondary" data-action="restore-version" data-id="${escape(file.id)}">Restore</button></div>`).join('') : '<div class="empty">No saved versions in this Drive.</div>'}
-    ${cloudHeads.length > 1 || (cloudHeads.length && state.sync.dirty) ? `<div class="notice">There are different versions. You can restore a version, or keep this phone's data and save it as a new version. Review carefully first.</div>
+    ${cloudHeads.length > 1 || state.sync.dirty || (state.sync.base.length && !cloudHeads.length) ? `<div class="notice">Drive and this phone have different data. Restore a backup, or keep this phone's data and save it to Drive. Export a backup first if needed.</div>
     <button class="button full" data-action="resolve-local">Keep this phone's data</button>` : ''}`;
 }
 function previewPage() {
@@ -265,7 +270,7 @@ function snapshotId() {
   return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 async function refreshHeads() {
-  cloudFiles = (await drive.listSnapshots()).sort((a, b) => b.createdTime.localeCompare(a.createdTime));
+  cloudFiles = (await drive.listSnapshots()).sort((a, b) => (b.modifiedTime || b.createdTime).localeCompare(a.modifiedTime || a.createdTime));
   cloudHeads = drive.heads(cloudFiles);
   return cloudHeads;
 }
@@ -274,50 +279,79 @@ async function sync(force = false) {
   if (!drive.connected()) throw new Error('Connect Google Drive in Settings first.');
   getPassword();
   busy = true;
+  let retryPendingChanges = false;
   statusText = 'Checking Google Drive…'; statusKind = ''; render();
   try {
     const remote = await refreshHeads(), remoteIds = ids(remote);
-    if (!force && !same(remoteIds, state.sync.base)) {
-      if (!state.sync.dirty && remote.length === 1 && state.data.contacts.length === 0) {
-        if (view !== 'contact' && view !== 'entry') view = 'versions';
-        statusText = 'Existing Drive data found. Select it to restore.'; statusKind = 'warning'; return;
-      }
-      if (view !== 'contact' && view !== 'entry') view = 'versions';
-      statusText = 'Drive and this phone have different versions. Choose how to proceed.'; statusKind = 'warning'; return;
+    if (remote.filter(file => file.appProperties?.kind === 'connections-current-v1').length > 1) {
+      throw new Error('Multiple current Drive files were found. Export a backup and resolve them before syncing.');
     }
-    if (!state.sync.dirty && !force && remote.length) { statusText = 'Saved to Drive'; statusKind = ''; return; }
+    const beforeDownload = revision;
+    const remoteData = [];
+    for (const file of remote) remoteData.push(await decryptData(await drive.download(file.id), password));
+    if (!force && !same(remoteIds, state.sync.base)) {
+      if (!state.sync.dirty && remote.length === 1 && (state.sync.base.length || !state.data.contacts.length) &&
+          revision === beforeDownload && view !== 'contact' && view !== 'entry') {
+        state.data = remoteData[0];
+        state.sync.base = remoteIds;
+        revision++;
+        await persist();
+      } else {
+        if (view !== 'contact' && view !== 'entry') view = 'versions';
+        statusText = 'Drive and this phone have different data. Choose how to proceed.'; statusKind = 'warning'; return;
+      }
+    }
+    const current = remote.find(file => file.appProperties?.kind === 'connections-current-v1');
+    if (!state.sync.dirty && !force && current) { statusText = 'Saved to Drive'; statusKind = ''; return; }
     if (!remote.length && !state.sync.base.length) {
       const confirmation = prompt('Confirm the password for your first Drive backup. It cannot be recovered if forgotten.');
       if (confirmation !== password) { password = ''; throw new Error('Passwords do not match. Nothing was uploaded.'); }
     }
-    for (const file of remote) await decryptData(await drive.download(file.id), password);
     const capturedRevision = revision;
     const capturedData = structuredClone(state.data);
     const id = snapshotId();
     statusText = 'Encrypting and saving to Drive…'; render();
-    await drive.upload(await encryptData(capturedData, password), id, remoteIds);
+    const envelope = await encryptData(capturedData, password);
+    if (!same(ids(await refreshHeads()), remoteIds)) {
+      if (view !== 'contact' && view !== 'entry') view = 'versions';
+      statusText = 'Drive changed while syncing. Choose how to proceed.'; statusKind = 'warning'; return;
+    }
+    await drive.upload(envelope, id, current?.id);
     state.sync.base = [id];
     state.sync.dirty = revision !== capturedRevision;
     await persist();
+    retryPendingChanges = state.sync.dirty;
     statusText = state.sync.dirty ? 'Saved on this phone · More changes waiting to sync' : 'Saved to Drive';
     statusKind = state.sync.dirty ? 'warning' : '';
-  } finally { busy = false; render(); }
+  } catch (error) {
+    if (/password|damaged backup/i.test(error.message || '')) password = '';
+    throw error;
+  } finally {
+    busy = false;
+    if (retryPendingChanges) scheduleSync();
+    render();
+  }
 }
 async function restoreVersion(id) {
   const file = cloudFiles.find(item => item.id === id);
   if (!file) throw new Error('That version is no longer available. Refresh the list.');
   if (busy) throw new Error('Wait for the current sync to finish.');
   if (!confirm('Replace the data on this phone with this Drive version? Export a backup first if you need the current data.')) return;
-  const before = revision;
-  const data = await decryptData(await drive.download(id), getPassword());
-  if (revision !== before) throw new Error('Data changed during restore. Try again after saving your work.');
-  state.data = data;
-  state.sync.base = [file.appProperties.snapshot];
-  state.sync.dirty = false;
-  revision++;
-  await persist();
-  view = 'home'; statusText = cloudHeads.length > 1 ? 'Restored locally · Other Drive versions still exist' : 'Restored from Drive';
-  statusKind = cloudHeads.length > 1 ? 'warning' : ''; render();
+  busy = true;
+  let restored = false;
+  try {
+    const before = revision;
+    const data = await decryptData(await drive.download(id), getPassword());
+    if (revision !== before) throw new Error('Data changed during restore. Try again after saving your work.');
+    state.data = data;
+    state.sync.base = [file.appProperties.snapshot];
+    state.sync.dirty = !same(ids(cloudHeads), state.sync.base);
+    revision++;
+    await persist();
+    restored = true;
+    view = 'home'; statusText = state.sync.dirty ? 'Earlier backup restored on this phone · Review before syncing' : 'Restored from Drive';
+    statusKind = state.sync.dirty ? 'warning' : '';
+  } finally { busy = false; if (restored && state.sync.dirty) scheduleSync(); render(); }
 }
 async function exportBackup() {
   const pass = prompt('Choose a password for this backup. You will need it to restore the file.');
@@ -443,7 +477,7 @@ root.addEventListener('click', async event => {
     if (action === 'connect') {
       await drive.connect(localStorage.getItem('connections-client-id') || defaultClientId);
       password = '';
-      statusText = 'Drive connected. Select Sync now to unlock and sync.'; statusKind = ''; render(); return;
+      await sync(); return;
     }
     if (action === 'sync') { await sync(); return; }
     if (action === 'versions') {
@@ -452,8 +486,10 @@ root.addEventListener('click', async event => {
     }
     if (action === 'restore-version') { await restoreVersion(id); return; }
     if (action === 'resolve-local') {
-      if (!confirm('Keep this phone’s data as the current version? Other versions remain in Drive, but their changes will not appear unless restored.')) return;
-      await sync(true); view = 'settings'; render(); return;
+      if (!confirm('Replace the current Drive data with this phone’s data? Export a backup first if you need the Drive copy.')) return;
+      await sync(true);
+      if (!statusKind && !state.sync.dirty) { view = 'settings'; render(); }
+      return;
     }
     if (action === 'export') { await exportBackup(); return; }
     if (action === 'restore-file') { document.querySelector('#restore-input').click(); return; }
@@ -462,6 +498,11 @@ root.addEventListener('click', async event => {
     if (/password|damaged backup/i.test(error.message || '')) password = '';
     showError(error);
   }
+});
+
+window.addEventListener('online', () => { if (state?.sync.dirty) scheduleSync(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state?.sync.dirty) scheduleSync();
 });
 
 async function initialize() {
