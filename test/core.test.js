@@ -69,6 +69,12 @@ test('Drive keeps old snapshots readable and updates one current file', async ()
     assert.match(requests[2].url, /files\/current-file\?/);
     assert.match(requests[2].body, /connections-current-v1/);
     assert.match(requests[2].body, /"snapshot":"second"/);
+    globalThis.fetch = async () => { throw new TypeError('Network unavailable'); };
+    await assert.rejects(() => listSnapshots(), error => error.retryable === true);
+    globalThis.fetch = async () => ({ ok: false, status: 503 });
+    await assert.rejects(() => listSnapshots(), error => error.retryable === true);
+    globalThis.fetch = async () => ({ ok: false, status: 403 });
+    await assert.rejects(() => listSnapshots(), error => error.retryable === false);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.window = originalWindow;

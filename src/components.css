@@ -4,4 +4,6 @@
 .settings-details { margin-top: 12px; background: white; border: 1px solid #e6ede5; border-radius: 16px; }
 .settings-details summary { padding: 15px; font-weight: 700; cursor: pointer; }
 .settings-content { padding: 0 15px 15px; }
-.settings-subtext { margin-top: 16px; }
+.person > div:nth-child(2), .list-row > div { min-width: 0; overflow-wrap: anywhere; }
+.person > div:nth-child(2) { flex: 1; }
+.profile h1, .info { overflow-wrap: anywhere; }

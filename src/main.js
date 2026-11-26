@@ -1,5 +1,5 @@
 import './style.css';
-import './settings.css';
+import './components.css';
 import { blankData, isPossibleDuplicate, newId, parseVcards, searchContacts, sortedNotes, validData } from './data.js';
 import { readState, writeState } from './storage.js';
 import { decryptData, encryptData } from './crypto.js';
@@ -11,15 +11,16 @@ const text = value => escape(value).replace(/\n/g, '<br>');
 const today = () => new Date().toLocaleDateString('en-CA');
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(s => s[0]).join('').toUpperCase();
 let state, view = 'home', contactId = '', formType = '', formId = '', query = '', filterTag = '';
-let password = '', busy = false, revision = 0, syncTimer, semanticWorker, semanticReady = false, semanticRequest = 0;
+let password = '', busy = false, revision = 0, syncTimer, syncRetryPending = false, semanticWorker, semanticReady = false, semanticRequest = 0;
 let cloudHeads = [], cloudFiles = [], importPreview = null, statusText = '', statusKind = '';
 let defaultClientId = '';
 let queue = Promise.resolve();
 
-function scheduleSync() {
+function scheduleSync(delay = 1800) {
   clearTimeout(syncTimer);
-  if (drive.connected() && password && navigator.onLine) {
-    syncTimer = setTimeout(() => sync().catch(showError), 1800);
+  if (drive.connected() && password) {
+    syncRetryPending = true;
+    if (navigator.onLine) syncTimer = setTimeout(() => sync().catch(showError), delay);
   }
 }
 
@@ -160,20 +161,17 @@ function reminders() {
 }
 function settings() {
   const clientId = localStorage.getItem('connections-client-id') || defaultClientId;
-  const connected = drive.connected();
+  const connected = drive.connected() && password;
   return `${top()}<h1>Settings</h1>${status()}
     <div class="card settings-card">
     <h2>Google Drive</h2>
     <p class="muted">${connected ? 'Connected for this session.' : 'Connect to back up and restore your data.'}</p>
     <p class="hint">Changes sync automatically while the app is open and connected. Enter your encryption password when connecting, not for each save. Keep it safe; it cannot be recovered.</p>
-    <button class="button full" data-action="${connected ? 'sync' : 'connect'}">${connected ? 'Sync now' : 'Connect Drive'}</button>
-    ${connected ? `<div class="actions"><button class="secondary full" data-action="connect">Reconnect Drive</button></div>` : ''}
+    ${connected ? '' : '<button class="button full" data-action="connect">Connect Drive</button>'}
     </div>
     <details class="settings-details"><summary>Backups &amp; restore</summary>
     <div class="settings-content">
-    <p class="hint">The app updates one encrypted Drive file. Earlier backups from the previous version remain available.</p>
-    <button class="secondary full" data-action="versions">View Drive backups</button>
-    <p class="hint settings-subtext">You can also save or restore an encrypted file.</p>
+    <p class="hint">Save or restore an encrypted backup file.</p>
     <div class="actions"><button class="secondary" data-action="export">Export backup</button><button class="secondary" data-action="restore-file">Restore backup</button></div>
     </div></details>
     <details class="settings-details"><summary>Setup &amp; contacts</summary>
@@ -184,7 +182,9 @@ function settings() {
     <details class="settings-details"${clientId ? '' : ' open'}><summary>Advanced</summary>
     <div class="settings-content"><p class="hint">For app setup only. Most users do not need to change this.</p>
     <form data-form="client-id">${field('Google OAuth client ID', 'clientId', clientId, 'text', 'placeholder="...apps.googleusercontent.com" autocomplete="off"')}
-    <button class="secondary full" type="submit">Save client ID</button></form></div></details>
+    <button class="secondary full" type="submit">Save client ID</button></form>
+    <div class="actions"><button class="secondary" data-action="versions">Recover earlier Drive backup</button>
+    ${connected ? '<button class="secondary" data-action="connect">Reconnect Drive</button>' : ''}</div></div></details>
     <input id="file-input" type="file" accept=".vcf,text/vcard" hidden><input id="restore-input" type="file" accept=".json,application/json" hidden>`;
 }
 function versionsPage() {
@@ -278,6 +278,8 @@ async function sync(force = false) {
   if (busy) return;
   if (!drive.connected()) throw new Error('Connect Google Drive in Settings first.');
   getPassword();
+  clearTimeout(syncTimer);
+  syncRetryPending = false;
   busy = true;
   let retryPendingChanges = false;
   statusText = 'Checking Google Drive…'; statusKind = ''; render();
@@ -325,6 +327,7 @@ async function sync(force = false) {
     statusKind = state.sync.dirty ? 'warning' : '';
   } catch (error) {
     if (/password|damaged backup/i.test(error.message || '')) password = '';
+    if (error.retryable) scheduleSync(15000);
     throw error;
   } finally {
     busy = false;
@@ -479,7 +482,6 @@ root.addEventListener('click', async event => {
       password = '';
       await sync(); return;
     }
-    if (action === 'sync') { await sync(); return; }
     if (action === 'versions') {
       if (!drive.connected()) throw new Error('Connect Google Drive first.');
       await refreshHeads(); view = 'versions'; render(); return;
@@ -500,9 +502,9 @@ root.addEventListener('click', async event => {
   }
 });
 
-window.addEventListener('online', () => { if (state?.sync.dirty) scheduleSync(); });
+window.addEventListener('online', () => { if (state?.sync.dirty || syncRetryPending) scheduleSync(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state?.sync.dirty) scheduleSync();
+  if (document.visibilityState === 'visible' && (state?.sync.dirty || syncRetryPending)) scheduleSync();
 });
 
 async function initialize() {

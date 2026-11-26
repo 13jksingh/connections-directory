@@ -35,10 +35,19 @@ export function connected() { return Boolean(token) && Date.now() < expires; }
 
 async function request(url, options = {}) {
   if (!connected()) throw new Error('Connect Google Drive to sync.');
-  const response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
+  } catch {
+    const error = new Error('Could not reach Google Drive. Your local changes are safe; sync will retry.');
+    error.retryable = true;
+    throw error;
+  }
   if (!response.ok) {
     if (response.status === 401) { token = ''; throw new Error('Google authorization expired. Reconnect to sync.'); }
-    throw new Error(`Google Drive request failed (${response.status}). Your local changes are safe.`);
+    const error = new Error(`Google Drive request failed (${response.status}). Your local changes are safe${response.status === 429 || response.status >= 500 ? '; sync will retry' : ''}.`);
+    error.retryable = response.status === 429 || response.status >= 500;
+    throw error;
   }
   return response;
 }
