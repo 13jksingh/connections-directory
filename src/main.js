@@ -1,5 +1,6 @@
 import './style.css';
 import './components.css';
+import './home.css';
 import { blankData, isPossibleDuplicate, newId, parseVcards, searchContacts, sortedNotes, validData } from './data.js';
 import { readState, writeState } from './storage.js';
 import { decryptData, encryptData } from './crypto.js';
@@ -10,6 +11,21 @@ const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&a
 const text = value => escape(value).replace(/\n/g, '<br>');
 const today = () => new Date().toLocaleDateString('en-CA');
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(s => s[0]).join('').toUpperCase();
+const icons = {
+  contacts: '<circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.2a5.5 5.5 0 0 1 11 0V19M16 5.5a3 3 0 0 1 0 5.8M17 13.5a4.5 4.5 0 0 1 3.5 4.3V19"/>',
+  reminders: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.2 13.8l1-1.8-1-1.8-1.5-.3a6.6 6.6 0 0 0-.7-1.3l.5-1.5-1.4-1.4-1.5.5a6.6 6.6 0 0 0-1.3-.7L12 4l-1.3 1.5a6.6 6.6 0 0 0-1.3.7l-1.5-.5-1.4 1.4.5 1.5a6.6 6.6 0 0 0-.7 1.3l-1.5.3-1 1.8 1 1.8 1.5.3c.2.5.4.9.7 1.3l-.5 1.5 1.4 1.4 1.5-.5c.4.3.8.5 1.3.7L12 20l1.3-1.5c.5-.2.9-.4 1.3-.7l1.5.5 1.4-1.4-.5-1.5c.3-.4.5-.8.7-1.3z"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/>',
+  sparkle: '<path d="M12 3.5 13.6 9l5.5 1.6-5.5 1.6L12 17.7l-1.6-5.5-5.5-1.6L10.4 9 12 3.5zM18.5 16v4M16.5 18h4"/>',
+  calendar: '<rect x="4" y="6" width="16" height="14" rx="3"/><path d="M8 4v4M16 4v4M4 10h16M8 14h.01M12 14h.01M16 14h.01"/>'
+};
+const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
+function reminderDate(value) {
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' · ');
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric',
+    ...(value.includes('T') ? { hour: 'numeric', minute: '2-digit' } : {}) }).format(date);
+}
 let state, view = 'home', contactId = '', formType = '', formId = '', query = '', filterTag = '';
 let password = '', busy = false, revision = 0, syncTimer, syncRetryPending = false, semanticWorker, semanticReady = false, semanticRequest = 0;
 let cloudHeads = [], cloudFiles = [], importPreview = null, statusText = '', statusKind = '';
@@ -67,9 +83,9 @@ function top() {
 }
 function nav() {
   return `<nav class="nav" aria-label="Main navigation">
-    <button data-action="home" class="${view === 'home' ? 'active' : ''}"><span>♧</span>Contacts</button>
-    <button data-action="reminders" class="${view === 'reminders' ? 'active' : ''}"><span>◷</span>Reminders</button>
-    <button data-action="settings" class="${view === 'settings' ? 'active' : ''}"><span>⚙</span>Settings</button>
+    <button data-action="home" class="${view === 'home' ? 'active' : ''}" ${view === 'home' ? 'aria-current="page"' : ''}><span>${icon('contacts')}</span>Contacts</button>
+    <button data-action="reminders" class="${view === 'reminders' ? 'active' : ''}" ${view === 'reminders' ? 'aria-current="page"' : ''}><span>${icon('reminders')}</span>Reminders</button>
+    <button data-action="settings" class="${view === 'settings' ? 'active' : ''}" ${view === 'settings' ? 'aria-current="page"' : ''}><span>${icon('settings')}</span>Settings</button>
   </nav>`;
 }
 function status() {
@@ -92,20 +108,22 @@ function home() {
   const items = upcoming(), first = items[0];
   const tags = [...new Set(state.data.contacts.flatMap(contact => contact.tags))].sort();
   const candidates = filterTag ? state.data.contacts.filter(contact => contact.tags.includes(filterTag)) : state.data.contacts;
-  return `${top()}<h1>Good to see you.</h1><p class="muted">Your people, all in one place.</p>
+  return `${top()}<div class="home-heading"><p class="eyebrow">YOUR PERSONAL DIRECTORY</p><h1>Good to see you.</h1><p class="muted">Your people, all in one place.</p></div>
     ${!localStorage.getItem('connections-onboarded') && !state.data.contacts.length ? `<div class="notice">
     <strong>Welcome to Connections</strong><p>Save this app to your Home Screen, then import contacts or add your first person. Connect your own Google Drive in Settings to back up your data.</p>
     <div class="actions">${button('See setup steps', 'settings')}${button('Got it', 'dismiss-welcome')}</div></div>` : ''}
     ${status()}
-    <div class="search"><label class="sr-only" for="search">Search connections</label>
+    <div class="search"><label class="sr-only" for="search">Search connections</label>${icon('search')}
       <input id="search" type="search" placeholder="Search people or conversations" value="${escape(query)}"></div>
-    <div class="search-options">${button(semanticReady ? '✳ AI search ready' : '✳ Enable AI search', 'ai')}
+    <div class="search-options">${button(`${icon('sparkle')}${semanticReady ? 'AI search ready' : 'Enable AI search'}`, 'ai')}
       <span class="hint" id="ai-status">${semanticReady ? 'Search by meaning' : 'Optional model download'}</span></div>
-    <div class="section-title"><h2>Coming up</h2>${button('View all', 'reminders')}</div>
-    ${first ? `<div class="card reminder"><strong>${escape(first.contact.name)}</strong><p>${escape(first.reminder.text)}</p><span class="hint">${escape(first.reminder.date.replace('T', ' · '))}</span></div>` :
-      '<div class="card reminder"><span class="muted">No follow-ups planned yet.</span></div>'}
-    <div class="section-title"><h2>Your connections</h2>${button('＋ Add new', 'new-contact')}</div>
-    ${tags.length ? `<label class="sr-only" for="tag-filter">Filter by tag</label><select id="tag-filter"><option value="">All tags</option>${tags.map(tag => `<option ${filterTag === tag ? 'selected' : ''}>${escape(tag)}</option>`).join('')}</select>` : ''}
+    <div class="section-title"><div><p class="section-kicker">STAY IN TOUCH</p><h2>Coming up</h2></div>${button('View all', 'reminders')}</div>
+    ${first ? `<button type="button" class="upcoming-card" data-action="open" data-id="${escape(first.contact.id)}">
+      <span class="upcoming-icon">${icon('calendar')}</span><span class="upcoming-content"><span class="upcoming-date">${escape(reminderDate(first.reminder.date))}</span>
+      <strong>${escape(first.contact.name)}</strong><span>${escape(first.reminder.text)}</span></span><span class="upcoming-arrow" aria-hidden="true">›</span></button>` :
+      `<div class="upcoming-card upcoming-empty"><span class="upcoming-icon">${icon('calendar')}</span><span class="upcoming-content"><strong>Nothing coming up</strong><span>Your follow-ups will appear here.</span></span></div>`}
+    <div class="section-title"><div><p class="section-kicker">YOUR DIRECTORY</p><h2>Your connections <span class="contact-count">${state.data.contacts.length}</span></h2></div>${button('＋ Add new', 'new-contact')}</div>
+    ${tags.length ? `<div class="filter-row"><label for="tag-filter">Filter</label><select id="tag-filter"><option value="">All tags</option>${tags.map(tag => `<option ${filterTag === tag ? 'selected' : ''}>${escape(tag)}</option>`).join('')}</select></div>` : ''}
     <div id="contact-list">${contactRows(searchContacts(candidates, query))}</div>
     <div class="actions"><button class="secondary full" data-action="import">↓ &nbsp; Import contacts from a file</button></div>`;
 }
@@ -211,7 +229,7 @@ function render() {
   if (!state) return;
   if ((view === 'contact' || view === 'entry') && root.querySelector('form[data-form="contact"], form[data-form="note"], form[data-form="reminder"]')) return;
   const pages = { home, detail: contactDetail, contact: contactForm, entry: entryForm, reminders, settings, versions: versionsPage, preview: previewPage };
-  root.innerHTML = `<div class="shell"><main class="screen">${pages[view]()}</main>${nav()}</div>`;
+  root.innerHTML = `<div class="shell"><main class="screen ${view === 'home' ? 'home-screen' : ''}">${pages[view]()}</main>${nav()}</div>`;
 }
 
 function documentsForAI() {
@@ -238,7 +256,13 @@ function enableAI() {
   semanticWorker.onmessage = ({ data }) => {
     const indicator = document.querySelector('#ai-status');
     if (data.type === 'progress' && indicator) indicator.textContent = data.message;
-    if (data.type === 'ready') { semanticReady = true; if (indicator) indicator.textContent = 'AI search ready'; doSearch(); }
+    if (data.type === 'ready') {
+      semanticReady = true;
+      if (indicator) indicator.textContent = 'Search by meaning';
+      const aiButton = root.querySelector('[data-action="ai"]');
+      if (aiButton) aiButton.innerHTML = `${icon('sparkle')}AI search ready`;
+      doSearch();
+    }
     if (data.type === 'error') {
       if (indicator) indicator.textContent = `AI unavailable: ${data.message}`;
       if (!semanticReady) { semanticWorker.terminate(); semanticWorker = null; }
